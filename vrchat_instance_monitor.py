@@ -138,6 +138,39 @@ class VRChatAPI:
             logger.error(f"認証エラー: {e}")
             return False
     
+    def get_world_instances(self, world_id: str) -> Optional[List]:
+        """
+        ワールドのインスタンス情報を取得する（新しいエンドポイント）
+        
+        Args:
+            world_id: ワールドID
+            
+        Returns:
+            インスタンス情報のリスト、失敗時はNone
+        """
+        try:
+            response = self.session.get(f"{self.BASE_URL}/worlds/{world_id}/instances")
+            
+            logger.debug(f"インスタンス情報取得レスポンス: status={response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                logger.debug(f"インスタンス情報取得成功: count={len(data) if isinstance(data, list) else 'N/A'}")
+                return data
+            elif response.status_code == 401:
+                logger.warning("認証が必要です。再認証を試みます...")
+                if self.authenticate():
+                    return self.get_world_instances(world_id)
+                return None
+            else:
+                logger.error(f"インスタンス情報取得失敗: {response.status_code}")
+                logger.error(f"レスポンス内容: {response.text[:500]}")
+                return None
+        
+        except Exception as e:
+            logger.error(f"インスタンス情報取得エラー: {e}", exc_info=True)
+            return None
+    
     def get_world_info(self, world_id: str) -> Optional[Dict]:
         """
         ワールド情報を取得する
@@ -252,17 +285,21 @@ class InstanceMonitor:
             logger.error(f"ワールド情報が辞書型ではありません: type={type(world_info)}")
             return None
         
-        # インスタンスリストを取得
-        instances = world_info.get('instances', [])
+        # 新しいエンドポイントでインスタンス情報を取得
+        instances_data = self.api.get_world_instances(self.world_id)
         
-        # インスタンスリストの検証
-        if not isinstance(instances, list):
-            logger.error(f"インスタンスリストがリスト型ではありません: type={type(instances)}")
-            logger.error(f"instances値: {instances}")
-            instances = []
+        # インスタンスデータの検証
+        if instances_data is None:
+            logger.warning("インスタンス情報の取得に失敗しました。旧エンドポイントのデータを使用します。")
+            instances_data = world_info.get('instances', [])
+        
+        if not isinstance(instances_data, list):
+            logger.error(f"インスタンスデータがリスト型ではありません: type={type(instances_data)}")
+            logger.error(f"instances_data値: {instances_data}")
+            instances_data = []
         
         logger.info(f"ワールド情報: name={world_info.get('name')}, occupants={world_info.get('occupants')}")
-        logger.info(f"取得したインスタンス数: {len(instances)}")
+        logger.info(f"取得したインスタンス数: {len(instances_data)}")
         
         # データ構造
         data = {
@@ -272,18 +309,18 @@ class InstanceMonitor:
             'total_occupants': world_info.get('occupants', 0),
             'public_occupants': world_info.get('publicOccupants', 0),
             'private_occupants': world_info.get('privateOccupants', 0),
-            'active_instances': len(instances),
+            'active_instances': len(instances_data),
             'instances': []
         }
         
         # インスタンスが0の場合の警告
-        if len(instances) == 0:
+        if len(instances_data) == 0:
             logger.warning("アクティブなインスタンスが見つかりませんでした")
             logger.warning(f"ワールド情報の全フィールド: {list(world_info.keys())}")
             logger.warning(f"occupants={world_info.get('occupants')}, publicOccupants={world_info.get('publicOccupants')}")
         
         # 各インスタンスの詳細情報を取得
-        for idx, instance in enumerate(instances):
+        for idx, instance in enumerate(instances_data):
             logger.debug(f"処理中のインスタンス #{idx + 1}: {instance}")
             
             # インスタンスデータの検証
