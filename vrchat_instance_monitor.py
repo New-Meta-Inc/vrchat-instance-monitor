@@ -15,6 +15,22 @@ import requests
 from datetime import datetime
 from typing import Dict, List, Optional
 import logging
+from pathlib import Path
+
+# .envファイルから環境変数を読み込む
+try:
+    from dotenv import load_dotenv
+    # スクリプトと同じディレクトリの.envファイルを読み込む
+    env_path = Path(__file__).parent / '.env'
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+        print(f"環境変数を {env_path} から読み込みました")
+    else:
+        print("警告: .envファイルが見つかりません。環境変数が設定されていることを確認してください。")
+except ImportError:
+    print("警告: python-dotenvがインストールされていません。")
+    print("pip install python-dotenv を実行してインストールしてください。")
+    print("環境変数は手動で設定する必要があります。")
 
 # ログ設定
 logging.basicConfig(
