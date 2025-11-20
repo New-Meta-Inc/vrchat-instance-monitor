@@ -182,7 +182,11 @@ class VRChatAPI:
             ワールド情報の辞書、失敗時はNone
         """
         try:
-            response = self.session.get(f"{self.BASE_URL}/worlds/{world_id}")
+            # includeInstances=trueパラメータを追加してインスタンス情報を取得
+            response = self.session.get(
+                f"{self.BASE_URL}/worlds/{world_id}",
+                params={'includeInstances': 'true'}
+            )
             
             logger.debug(f"ワールド情報取得レスポンス: status={response.status_code}")
             
@@ -285,14 +289,10 @@ class InstanceMonitor:
             logger.error(f"ワールド情報が辞書型ではありません: type={type(world_info)}")
             return None
         
-        # 新しいエンドポイントでインスタンス情報を取得
-        instances_data = self.api.get_world_instances(self.world_id)
+        # get_world_infoにより includeInstances=true でインスタンス情報を取得
+        instances_data = world_info.get('instances', [])
         
         # インスタンスデータの検証
-        if instances_data is None:
-            logger.warning("インスタンス情報の取得に失敗しました。旧エンドポイントのデータを使用します。")
-            instances_data = world_info.get('instances', [])
-        
         if not isinstance(instances_data, list):
             logger.error(f"インスタンスデータがリスト型ではありません: type={type(instances_data)}")
             logger.error(f"instances_data値: {instances_data}")

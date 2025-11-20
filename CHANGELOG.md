@@ -1,5 +1,30 @@
 # 変更履歴
 
+## [3.0.0] - 2025-11-20
+
+### 🎉 決定的な修正 - includeInstances=true パラメータの発見
+
+#### 変更内容
+- **includeInstances=true パラメータを発見**: VRChatウェブサイトのネットワークトラフィックを分析して発見
+- **`GET /worlds/{worldId}?includeInstances=true`** で実際のインスタンス情報を取得可能
+- **コードを簡素化**: 不要な `get_world_instances()` メソッドを削除
+
+#### 問題の原因
+- `GET /worlds/{worldId}` エンドポイントはデフォルトでは `instances` フィールドに空データを返す
+- **`includeInstances=true`** パラメータを追加すると実際のインスタンス情報を返す
+- VRChatウェブサイトもこのパラメータを使用している
+
+#### 解決方法
+- `get_world_info()` メソッドに `params={'includeInstances': 'true'}` を追加
+- これにより、ワールド情報と一緒にインスタンス情報を取得できる
+
+#### 修正されたメソッド
+- `get_world_info()`: `includeInstances=true` パラメータを追加
+- `collect_data()`: 簡素化して `get_world_info()` から直接インスタンス情報を取得
+
+#### 削除されたメソッド
+- `get_world_instances()`: 不要になったため削除予定
+
 ## [2.0.0] - 2025-11-20
 
 ### 🎉 重大な修正 - インスタンス情報取得の根本的な問題を解決
