@@ -183,24 +183,34 @@ class VRChatAPI:
         """
         try:
             # includeInstances=trueパラメータを追加してインスタンス情報を取得
-            response = self.session.get(
-                f"{self.BASE_URL}/worlds/{world_id}",
-                params={'includeInstances': 'true'}
-            )
+            url = f"{self.BASE_URL}/worlds/{world_id}"
+            params = {'includeInstances': 'true'}
+            logger.info(f"リクエストURL: {url}?includeInstances=true")
             
-            logger.debug(f"ワールド情報取得レスポンス: status={response.status_code}")
+            response = self.session.get(url, params=params)
+            
+            logger.info(f"ワールド情報取得レスポンス: status={response.status_code}")
+            logger.debug(f"実際のURL: {response.url}")
             
             if response.status_code == 200:
                 data = response.json()
-                logger.debug(f"ワールド情報取得成功: name={data.get('name')}, occupants={data.get('occupants')}, instances_count={len(data.get('instances', []))}")
+                instances_raw = data.get('instances', [])
+                logger.info(f"ワールド情報取得成功: name={data.get('name')}, occupants={data.get('occupants')}, instances_count={len(instances_raw)}")
+                logger.debug(f"instancesフィールドの型: {type(instances_raw)}")
+                if len(instances_raw) > 0:
+                    logger.debug(f"最初のインスタンス: {instances_raw[0]}")
                 
                 # インスタンス情報の詳細ログ
                 instances = data.get('instances', [])
                 if instances:
                     logger.info(f"取得したインスタンス数: {len(instances)}")
-                    logger.debug(f"インスタンスデータのサンプル: {instances[:3] if len(instances) > 3 else instances}")
+                    logger.info(f"インスタンスデータのサンプル: {instances[:3] if len(instances) > 3 else instances}")
                 else:
                     logger.warning("インスタンスリストが空です")
+                    logger.warning(f"instancesフィールドの値: {instances}")
+                    logger.warning(f"occupants: {data.get('occupants')}, publicOccupants: {data.get('publicOccupants')}")
+                    # レスポンス全体をデバッグ出力
+                    logger.debug(f"レスポンス全体（最初の1000文字）: {str(data)[:1000]}")
                 
                 return data
             elif response.status_code == 401:
@@ -210,6 +220,7 @@ class VRChatAPI:
                 return None
             else:
                 logger.error(f"ワールド情報取得失敗: {response.status_code}")
+                logger.error(f"リクエストURL: {response.url}")
                 logger.error(f"レスポンス内容: {response.text[:500]}")
                 return None
         
