@@ -151,8 +151,21 @@ class VRChatAPI:
         try:
             response = self.session.get(f"{self.BASE_URL}/worlds/{world_id}")
             
+            logger.debug(f"ワールド情報取得レスポンス: status={response.status_code}")
+            
             if response.status_code == 200:
-                return response.json()
+                data = response.json()
+                logger.debug(f"ワールド情報取得成功: name={data.get('name')}, occupants={data.get('occupants')}, instances_count={len(data.get('instances', []))}")
+                
+                # インスタンス情報の詳細ログ
+                instances = data.get('instances', [])
+                if instances:
+                    logger.info(f"取得したインスタンス数: {len(instances)}")
+                    logger.debug(f"インスタンスデータのサンプル: {instances[:3] if len(instances) > 3 else instances}")
+                else:
+                    logger.warning("インスタンスリストが空です")
+                
+                return data
             elif response.status_code == 401:
                 logger.warning("認証が必要です。再認証を試みます...")
                 if self.authenticate():
@@ -160,10 +173,11 @@ class VRChatAPI:
                 return None
             else:
                 logger.error(f"ワールド情報取得失敗: {response.status_code}")
+                logger.error(f"レスポンス内容: {response.text[:500]}")
                 return None
         
         except Exception as e:
-            logger.error(f"ワールド情報取得エラー: {e}")
+            logger.error(f"ワールド情報取得エラー: {e}", exc_info=True)
             return None
     
     def get_instance_info(self, world_id: str, instance_id: str) -> Optional[Dict]:
@@ -182,8 +196,12 @@ class VRChatAPI:
                 f"{self.BASE_URL}/worlds/{world_id}/{instance_id}"
             )
             
+            logger.debug(f"インスタンス情報取得: instance={instance_id}, status={response.status_code}")
+            
             if response.status_code == 200:
-                return response.json()
+                data = response.json()
+                logger.debug(f"インスタンス詳細: n_users={data.get('n_users')}, type={data.get('type')}, full={data.get('full')}")
+                return data
             elif response.status_code == 401:
                 logger.warning("認証が必要です。再認証を試みます...")
                 if self.authenticate():
@@ -191,6 +209,7 @@ class VRChatAPI:
                 return None
             else:
                 logger.warning(f"インスタンス情報取得失敗: {response.status_code} (Instance: {instance_id})")
+                logger.debug(f"レスポンス内容: {response.text[:200]}")
                 return None
         
         except Exception as e:
@@ -213,12 +232,12 @@ class InstanceMonitor:
         self.output_file = output_file
         self.api = VRChatAPI()
     
-    def collect_data(self) -> Dict:
+    def collect_data(self) -> Optional[Dict]:
         """
         現在のインスタンスデータを収集する
         
         Returns:
-            収集したデータの辞書
+            収集したデータの辞書、失敗時はNone
         """
         logger.info(f"ワールド {self.world_id} のデータを収集中...")
         
@@ -228,8 +247,22 @@ class InstanceMonitor:
             logger.error("ワールド情報の取得に失敗しました")
             return None
         
+        # レスポンスの検証
+        if not isinstance(world_info, dict):
+            logger.error(f"ワールド情報が辞書型ではありません: type={type(world_info)}")
+            return None
+        
         # インスタンスリストを取得
         instances = world_info.get('instances', [])
+        
+        # インスタンスリストの検証
+        if not isinstance(instances, list):
+            logger.error(f"インスタンスリストがリスト型ではありません: type={type(instances)}")
+            logger.error(f"instances値: {instances}")
+            instances = []
+        
+        logger.info(f"ワールド情報: name={world_info.get('name')}, occupants={world_info.get('occupants')}")
+        logger.info(f"取得したインスタンス数: {len(instances)}")
         
         # データ構造
         data = {
@@ -243,13 +276,33 @@ class InstanceMonitor:
             'instances': []
         }
         
+        # インスタンスが0の場合の警告
+        if len(instances) == 0:
+            logger.warning("アクティブなインスタンスが見つかりませんでした")
+            logger.warning(f"ワールド情報の全フィールド: {list(world_info.keys())}")
+            logger.warning(f"occupants={world_info.get('occupants')}, publicOccupants={world_info.get('publicOccupants')}")
+        
         # 各インスタンスの詳細情報を取得
-        for instance in instances:
-            if not instance or len(instance) < 2:
+        for idx, instance in enumerate(instances):
+            logger.debug(f"処理中のインスタンス #{idx + 1}: {instance}")
+            
+            # インスタンスデータの検証
+            if not instance:
+                logger.warning(f"インスタンス #{idx + 1} が空です")
+                continue
+            
+            if not isinstance(instance, (list, tuple)):
+                logger.warning(f"インスタンス #{idx + 1} がリストまたはタプルではありません: type={type(instance)}, value={instance}")
+                continue
+            
+            if len(instance) < 2:
+                logger.warning(f"インスタンス #{idx + 1} の要素数が不足しています: len={len(instance)}, value={instance}")
                 continue
             
             instance_id = instance[0]
             user_count = instance[1]
+            
+            logger.info(f"インスタンス #{idx + 1}: ID={instance_id}, ユーザー数={user_count}")
             
             # インスタンス詳細を取得（オプション）
             instance_detail = self.api.get_instance_info(self.world_id, instance_id)
@@ -267,13 +320,21 @@ class InstanceMonitor:
                     'full': instance_detail.get('full', False),
                     'platforms': instance_detail.get('platforms', {})
                 })
+            else:
+                logger.warning(f"インスタンス #{idx + 1} の詳細情報を取得できませんでした")
             
             data['instances'].append(instance_data)
             
             # レート制限対策
             time.sleep(0.5)
         
-        logger.info(f"データ収集完了: {len(data['instances'])}個のインスタンス")
+        logger.info(f"データ収集完了: {len(data['instances'])}個のインスタンス情報を取得")
+        
+        # 最終検証
+        if data['total_occupants'] > 0 and len(data['instances']) == 0:
+            logger.error("警告: ユーザーが存在するのにインスタンス情報が取得できませんでした")
+            logger.error("これはAPIレスポンスの形式が予想と異なる可能性があります")
+        
         return data
     
     def save_data(self, data: Dict):
@@ -297,26 +358,29 @@ class InstanceMonitor:
                 f.write(f"{'-'*80}\n")
                 
                 # インスタンス詳細
-                for i, instance in enumerate(data['instances'], 1):
-                    f.write(f"\nインスタンス #{i}\n")
-                    f.write(f"  ID: {instance['instance_id']}\n")
-                    f.write(f"  ユーザー数: {instance['user_count']}\n")
-                    
-                    if 'type' in instance:
-                        f.write(f"  タイプ: {instance['type']}\n")
-                    if 'capacity' in instance:
-                        f.write(f"  最大収容人数: {instance['capacity']}\n")
-                    if 'full' in instance:
-                        f.write(f"  満員: {'はい' if instance['full'] else 'いいえ'}\n")
-                    if 'platforms' in instance and instance['platforms']:
-                        f.write(f"  プラットフォーム別: {instance['platforms']}\n")
+                if data['instances']:
+                    for i, instance in enumerate(data['instances'], 1):
+                        f.write(f"\nインスタンス #{i}\n")
+                        f.write(f"  ID: {instance['instance_id']}\n")
+                        f.write(f"  ユーザー数: {instance['user_count']}\n")
+                        
+                        if 'type' in instance:
+                            f.write(f"  タイプ: {instance['type']}\n")
+                        if 'capacity' in instance:
+                            f.write(f"  最大収容人数: {instance['capacity']}\n")
+                        if 'full' in instance:
+                            f.write(f"  満員: {'はい' if instance['full'] else 'いいえ'}\n")
+                        if 'platforms' in instance and instance['platforms']:
+                            f.write(f"  プラットフォーム別: {instance['platforms']}\n")
+                else:
+                    f.write(f"\n※ アクティブなインスタンスが見つかりませんでした\n")
                 
                 f.write(f"\n{'='*80}\n")
             
             logger.info(f"データを {self.output_file} に保存しました")
         
         except Exception as e:
-            logger.error(f"データ保存エラー: {e}")
+            logger.error(f"データ保存エラー: {e}", exc_info=True)
     
     def run(self, interval_minutes: int = 10):
         """
@@ -353,7 +417,7 @@ class InstanceMonitor:
         except KeyboardInterrupt:
             logger.info("\n監視を停止しました")
         except Exception as e:
-            logger.error(f"予期しないエラー: {e}")
+            logger.error(f"予期しないエラー: {e}", exc_info=True)
 
 
 def main():
@@ -362,6 +426,14 @@ def main():
     world_id = os.getenv('VRCHAT_WORLD_ID', 'wrld_7bb60bf6-3c69-4039-a5d6-0cbbda092290')
     output_file = os.getenv('OUTPUT_FILE', 'vrchat_instances.txt')
     interval_minutes = int(os.getenv('INTERVAL_MINUTES', '10'))
+    
+    # デバッグモードの確認
+    debug_mode = os.getenv('DEBUG', 'false').lower() == 'true'
+    if debug_mode:
+        logger.setLevel(logging.DEBUG)
+        logger.info("デバッグモードが有効です")
+    
+    logger.info(f"設定: world_id={world_id}, output_file={output_file}, interval={interval_minutes}分")
     
     # 監視開始
     monitor = InstanceMonitor(world_id, output_file)
